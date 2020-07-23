@@ -219,11 +219,12 @@ class KlineAnalyze(object):
         self.handle_last = handle_last
         self.min_bi_gap = min_bi_gap
         self.debug = debug
-        self.kline = self._preprocess(kline)
         self.symbol = self.kline[0]['symbol']
         self.latest_price = self.kline[-1]['close']
         self.start_dt = self.kline[0]['dt']
         self.end_dt = self.kline[-1]['dt']
+
+        self.kline = self._preprocess(kline)
         self.kline_new = self._remove_include()
         self.fx = self._find_fx()
         self.bi = self._find_bi()
@@ -243,6 +244,7 @@ class KlineAnalyze(object):
 
         results = []
         for k in kline:
+            # 分型标记，o 非分型，d 底分型 ， g 顶分型
             k['fx_mark'], k['fx'], k['bi'], k['xd'] = "o", None, None, None
             results.append(k)
         return results
@@ -252,6 +254,7 @@ class KlineAnalyze(object):
         k_new = []
 
         for k in self.kline:
+            # todo: 第一根和第二根k线也要考虑包含关系
             if len(k_new) <= 2:
                 k_new.append({
                     "symbol": k['symbol'],
@@ -400,7 +403,7 @@ class KlineAnalyze(object):
         i = 1
         while i < len(seq):
             if fx_mark == 'd':
-                # 对于底，前面的高于后面的，只保留后面的
+                # 添加转角处的底
                 s1 = seq[i-1]
                 s2 = seq[i]
                 if i == len(seq) - 1:
@@ -411,7 +414,7 @@ class KlineAnalyze(object):
                         p.append(s2)
 
             elif fx_mark == 'g':
-                # 对于顶，前面的低于后面的，只保留后面的
+                # 添加转角处的顶
                 s1 = seq[i-1]
                 s2 = seq[i]
                 if i == len(seq) - 1:
@@ -477,25 +480,28 @@ class KlineAnalyze(object):
                             break
 
                     if has_gap:
-                        # bi.append(k)
-                        if (k0['fx_mark'] == 'g' and k['fx_high'] < k0['fx_low']) or \
-                                (k0['fx_mark'] == 'd' and k['fx_low'] > k0['fx_high']):
-                            bi.append(k)
+                        # if (k0['fx_mark'] == 'g' and k['fx_high'] < k0['fx_low']) or \
+                        #         (k0['fx_mark'] == 'd' and k['fx_low'] > k0['fx_high']):
+                        #     bi.append(k)
+                        bi.append(k)
                         continue
 
                     # max_high = max([x['high'] for x in k_inside])
                     # min_low = min([x['low'] for x in k_inside])
                     if len(k_inside) >= min_k_num:
                         # 确保相邻两个顶底之间顶大于底，并且笔分型是极值
-                        if (k0['fx_mark'] == 'g' and k['fx_high'] < k0['fx_low']) or \
-                                (k0['fx_mark'] == 'd' and k['fx_low'] > k0['fx_high']):
-                            bi.append(k)
+                        # if (k0['fx_mark'] == 'g' and k['fx_high'] < k0['fx_low']) or \
+                        #         (k0['fx_mark'] == 'd' and k['fx_low'] > k0['fx_high']):
+                        #     bi.append(k)
+                        bi.append(k)
         return bi
 
     def __handle_last_bi(self, bi):
-        """处理最后一个笔标记
-
+        """
+        处理最后一个笔标记
         特别的，对应最后一个笔标记：最后一根K线的最高价大于顶，或最后一根K线的最低价大于底，则删除这个标记。
+
+        todo: 为什么？说明当前这个笔还在延续中？
         """
         last_bi = bi[-1]
         last_k = self.kline_new[-1]
@@ -546,7 +552,7 @@ class KlineAnalyze(object):
                         xd.pop(-1)
                         xd.append(k)
                 else:
-                    # 确保相邻两个顶底之间顶大于底
+                    # 确保相邻两个顶底之间顶大于底（jvv: 会有这种情况吗？）
                     if (k0['fx_mark'] == 'g' and k['xd'] >= k0['xd']) or \
                             (k0['fx_mark'] == 'd' and k['xd'] <= k0['xd']):
                         xd.pop(-1)
@@ -575,6 +581,7 @@ class KlineAnalyze(object):
                     right_first = bi_r[1]
                     assert left_last['fx_mark'] != right_first['fx_mark']
 
+                    #todo: 判断条件存疑 (jvv)
                     if k['fx_mark'] == 'd':
                         max_g = max([x['bi'] for x in bi_r[:8] if x['fx_mark'] == 'g'])
                         if max_g > right_first['bi'] and max_g > left_last['bi']:
@@ -621,7 +628,9 @@ class KlineAnalyze(object):
                 k['fx_mark'], k['fx'], k['bi'], k['xd'] = k1['fx_mark'], k1['fx'], k1['bi'], k1['xd']
 
     def zs_mean(self, n=6, mode='xd'):
-        """计算最近 n 个走势的平均波动幅度
+        """
+
+        计算最近 n 个走势的平均波动幅度
 
         :param n: int
             线段数量
@@ -659,6 +668,7 @@ class KlineAnalyze(object):
         else:
             return False
 
+    # jieweiwei : 这个线段背驰只是前后两个同向线段的背驰，而不是一个中枢前后两个线段的背驰；
     def xd_bei_chi(self):
         """判断最后一个线段是否背驰"""
         xd = self.xd

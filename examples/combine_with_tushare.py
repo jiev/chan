@@ -16,6 +16,7 @@ from czsc import KlineAnalyze, SolidAnalyze
 # 没有 token，到 https://tushare.pro/register?reg=7 注册获取
 # ts.set_token("your tushare token")
 
+ts.set_token('14f4fbfa08778cba51c73f0ef928210cf2629931fb06f3a797564a0f')
 
 def _get_start_date(end_date, freq):
     end_date = datetime.strptime(end_date, '%Y%m%d')
@@ -56,8 +57,9 @@ def get_kline(ts_code, end_date, freq='30min', asset='E'):
     end_date = end_date + timedelta(days=1)
     end_date = end_date.date().__str__().replace("-", "")
 
-    df = ts.pro_bar(ts_code=ts_code, freq=freq, start_date=start_date, end_date=end_date,
-                    adj='qfq', asset=asset)
+    pro = ts.pro_api()
+    df = pro.daily(ts_code=ts_code, start_date=start_date, end_date=end_date)
+    #print(df)
 
     # 统一 k 线数据格式为 6 列，分别是 ["symbol", "dt", "open", "close", "high", "low", "vr"]
     if "min" in freq:
@@ -95,7 +97,7 @@ def get_klines(ts_code, end_date, freqs='1min,5min,30min,D', asset='E'):
 def use_kline_analyze():
     print('=' * 100, '\n')
     print("KlineAnalyze 的使用方法：\n")
-    kline = get_kline(ts_code="000009.SZ", end_date="20200210", freq='30min', asset="I")
+    kline = get_kline(ts_code="000009.SZ", end_date="20200210", freq='D', asset="I")
     ka = KlineAnalyze(kline)
     print("线段：", ka.xd, "\n")
     print("中枢：", ka.zs, "\n")
@@ -114,6 +116,6 @@ def use_solid_analyze():
 
 if __name__ == '__main__':
     use_kline_analyze()
-    use_solid_analyze()
+    #use_solid_analyze()
 
 
