@@ -3,56 +3,71 @@
 
 常用技术分析指标：MA, MACD, BOLL
 """
+import numpy as np
+import numba
 
+@numba.njit()
+def SMA(close: np.array, timeperiod=5):
+    """简单移动平均
 
-def ma(kline, params=(5, 10, 20, 60, 120, 250)):
-    """计算指定周期的若干 MA 均线
+    https://baike.baidu.com/item/%E7%A7%BB%E5%8A%A8%E5%B9%B3%E5%9D%87%E7%BA%BF/217887
 
-    :param kline: pd.DataFrame
-        K线，columns = ["symbol", "dt", "open", "close", "high", "low", "vol"]
-    :param params: tuple
-    :return: pd.DataFrame
-        在原始数据中新增若干 MA 均线
+    :param close: np.array
+        收盘价序列
+    :param timeperiod: int
+        均线参数
+    :return: np.array
     """
-    for p in params:
-        col = "ma" + str(p)
-        kline.loc[:, col] = kline['close'].rolling(p).mean().apply(round, args=(2,))
-    return kline
+    res = []
+    for i in range(len(close)):
+        if i < timeperiod:
+            seq = close[0: i+1]
+        else:
+            seq = close[i - timeperiod + 1: i + 1]
+        res.append(seq.mean())
+    return np.array(res, dtype=np.double)
 
-
-def macd(kline):
-    """计算 MACD 指标
-
-    :param kline: pd.DataFrame
-        K线，columns = ["symbol", "dt", "open", "close", "high", "low", "vol"]
-    :return: pd.DataFrame
-        在原始数据中新增 diff,dea,macd 三列
+@numba.njit()
+def EMA(close: np.array, timeperiod=5):
     """
+    https://baike.baidu.com/item/EMA/12646151
 
-    short_, long_, m = 12, 26, 9
-    kline.loc[:, 'diff'] = kline['close'].ewm(adjust=False, alpha=2 / (short_ + 1), ignore_na=True).mean() - \
-                            kline['close'].ewm(adjust=False, alpha=2 / (long_ + 1), ignore_na=True).mean()
-    kline.loc[:, 'dea'] = kline['diff'].ewm(adjust=False, alpha=2 / (m + 1), ignore_na=True).mean()
-    kline.loc[:, 'macd'] = 2 * (kline['diff'] - kline['dea'])
-
-    for col in ['diff', 'dea', 'macd']:
-        kline.loc[:, col] = kline[col].apply(round, args=(2,))
-    return kline
-
-
-def boll(kline):
-    """计算 BOLL 指标
-
-    :param kline: pd.DataFrame
-        K线，columns = ["symbol", "dt", "open", "close", "high", "low", "vol"]
-    :return: pd.DataFrame
-        在原始数据中新增 BOLL 指标结果
+    :param close: np.array
+        收盘价序列
+    :param timeperiod: int
+        均线参数
+    :return: np.array
     """
-    kline.loc[:, 'boll-mid'] = kline['close'].rolling(26).mean()
-    kline.loc[:, 'boll-tmp2'] = kline['close'].rolling(20).std()
-    kline.loc[:, 'boll-top'] = kline['boll-mid'] + 2 * kline['boll-tmp2']
-    kline.loc[:, 'boll-bottom'] = kline['boll-mid'] - 2 * kline['boll-tmp2']
+    res = []
+    for i in range(len(close)):
+        if i < 1:
+            res.append(close[i])
+        else:
+            ema = (2 * close[i] + res[i-1] * (timeperiod-1)) / (timeperiod+1)
+            res.append(ema)
+    return np.array(res, dtype=np.double)
 
-    for col in ['boll-mid', 'boll-top', 'boll-bottom']:
-        kline.loc[:, col] = kline[col].apply(round, args=(2,))
-    return kline
+@numba.njit()
+def MACD(close: np.array, fastperiod=12, slowperiod=26, signalperiod=9):
+    """MACD 异同移动平均线
+    https://baike.baidu.com/item/MACD%E6%8C%87%E6%A0%87/6271283
+
+    :param close: np.array
+        收盘价序列
+    :param fastperiod: int
+        快周期，默认值 12
+    :param slowperiod: int
+        慢周期，默认值 26
+    :param signalperiod: int
+        信号周期，默认值 9
+    :return: (np.array, np.array, np.array)
+        diff, dea, macd
+    """
+    ema12 = EMA(close, timeperiod=fastperiod)
+    ema26 = EMA(close, timeperiod=slowperiod)
+    diff = ema12 - ema26
+    dea = EMA(diff, timeperiod=signalperiod)
+    macd = (diff - dea) * 2
+    return diff, dea, macd
+
+
