@@ -142,7 +142,7 @@ def plot_kline(ka, bs=None, file_html="kline.html", width="1400px", height="680p
             .add_xaxis(xaxis_data=x)
             .add_yaxis(
             series_name="Volumn",
-            yaxis_data=df.vol.tolist(),
+            y_axis=df.vol.tolist(),
             xaxis_index=1,
             yaxis_index=1,
             label_opts=opts.LabelOpts(is_show=False),
@@ -181,7 +181,7 @@ def plot_kline(ka, bs=None, file_html="kline.html", width="1400px", height="680p
             .add_xaxis(xaxis_data=x)
             .add_yaxis(
             series_name="MACD",
-            yaxis_data=df.macd.tolist(),
+            y_axis=df.macd.tolist(),
             xaxis_index=2,
             yaxis_index=2,
             label_opts=opts.LabelOpts(is_show=False),

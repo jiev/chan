@@ -219,12 +219,13 @@ class KlineAnalyze(object):
         self.handle_last = handle_last
         self.min_bi_gap = min_bi_gap
         self.debug = debug
+
+        self.kline = self._preprocess(kline)
         self.symbol = self.kline[0]['symbol']
         self.latest_price = self.kline[-1]['close']
         self.start_dt = self.kline[0]['dt']
         self.end_dt = self.kline[-1]['dt']
 
-        self.kline = self._preprocess(kline)
         self.kline_new = self._remove_include()
         self.fx = self._find_fx()
         self.bi = self._find_bi()
@@ -691,7 +692,7 @@ class KlineAnalyze(object):
         else:
             return False
 
-    def to_html(self, file_html="kline.html", width="1400px", height="680px"):
+    def to_html(self, file_html="kline.html", width="1200px", height="580px"):
         """保存成 html
 
         :param file_html: str
@@ -732,6 +733,10 @@ class KlineAnalyze(object):
                     zs_cur = zs_next
                 else:
                     break
+
+        # 如果没有在一个方向上连续的两个以上中枢，那么就不能说明在这个方向上有走势，这时 zs_num 没有意义；
+        if zs_num >= 2:
+            zs_num = 0
         return zs_num
 
     def down_zs_number(self):
@@ -747,4 +752,8 @@ class KlineAnalyze(object):
                     zs_cur = zs_next
                 else:
                     break
+
+        # 如果没有在一个方向上连续的两个以上中枢，那么就不能说明在这个方向上有走势，这时 zs_num 没有意义；
+        if zs_num >= 2:
+            zs_num = 0
         return zs_num
