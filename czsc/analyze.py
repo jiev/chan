@@ -1,10 +1,12 @@
 # coding: utf-8
 
 import warnings
+
 try:
     import talib as ta
 except ImportError:
     from czsc import ta
+
     ta_lib_hint = "没有安装 ta-lib !!! 请到 https://www.lfd.uci.edu/~gohlke/pythonlibs/#ta-lib " \
                   "下载对应版本安装，预计分析速度提升2倍"
     warnings.warn(ta_lib_hint)
@@ -33,8 +35,9 @@ from czsc.utils import plot_ka, plot_kline
     })
     zs_xd = k_xd[i - 1: i + 1]
 """
-def find_zs(points):
 
+
+def find_zs(points):
     if len(points) <= 4:
         return []
 
@@ -106,31 +109,43 @@ def find_zs(points):
     return k_zs
 
 
+"""
+    :param kline: list or pd.DataFrame
+    :param name: str
+    :param min_bi_k: int
+        笔内部的最少K线数量
+    :param bi_mode: str
+        new 新笔；old 老笔；默认值为 old
+    :param max_raw_len: int
+        原始K线序列的最大长度
+    :param ma_params: tuple of int
+        均线系统参数
+    :param verbose: bool
+    
+    
+    当前对 kline 参数的格式要求：
+        kline 是一个 dict 对象的列表。每个dict 对象至少包含如下 key ：
+            symbol
+            dt
+            open
+            close
+            high
+            low
+"""
+
+
 class KlineAnalyze:
     def __init__(self, kline, name="本级别", min_bi_k=5, bi_mode="new",
                  max_raw_len=10000, ma_params=(5, 20, 120), verbose=False):
-        """
 
-        :param kline: list or pd.DataFrame
-        :param name: str
-        :param min_bi_k: int
-            笔内部的最少K线数量
-        :param bi_mode: str
-            new 新笔；old 老笔；默认值为 old
-        :param max_raw_len: int
-            原始K线序列的最大长度
-        :param ma_params: tuple of int
-            均线系统参数
-        :param verbose: bool
-        """
         self.name = name
         self.verbose = verbose
         self.min_bi_k = min_bi_k
         self.bi_mode = bi_mode
         self.max_raw_len = max_raw_len
         self.ma_params = ma_params
-        self.kline_raw = []                 # 原始K线序列
-        self.kline_new = []                 # 去除包含关系的K线序列
+        self.kline_raw = []  # 原始K线序列
+        self.kline_new = []  # 去除包含关系的K线序列
 
         # 辅助技术指标
         self.ma = []
@@ -218,11 +233,11 @@ class KlineAnalyze:
             # m1 is diff; m2 is dea; m3 is macd
             m1, m2, m3 = ta.MACD(close_, fastperiod=12, slowperiod=26, signalperiod=9)
             macd_ = {
-                    "dt": self.kline_raw[-1]['dt'],
-                    "diff": m1[-1],
-                    "dea": m2[-1],
-                    "macd": m3[-1]
-                }
+                "dt": self.kline_raw[-1]['dt'],
+                "diff": m1[-1],
+                "dea": m2[-1],
+                "macd": m3[-1]
+            }
             if self.verbose:
                 print("macd new: %s" % str(macd_))
 
@@ -236,6 +251,7 @@ class KlineAnalyze:
     """
         更新去除包含关系的K线序列
     """
+
     def _update_kline_new(self):
 
         if len(self.kline_new) == 0:
@@ -299,6 +315,7 @@ class KlineAnalyze:
             self.fx_list.append(fx)
     
     """
+
     def _update_fx_list(self):
 
         if len(self.kline_new) < 3:
@@ -313,8 +330,8 @@ class KlineAnalyze:
             kn = [x for x in self.kline_new[-100:] if x['dt'] >= self.fx_list[-1]['dt']]
 
         i = 1
-        while i <= len(kn)-2:
-            k1, k2, k3 = kn[i-1: i+2]
+        while i <= len(kn) - 2:
+            k1, k2, k3 = kn[i - 1: i + 2]
 
             # 分型的日期为分型 高/低 点的日期。若分型为高点，则 fx["fx"] = k2['high'],否则  fx["fx"] = k2['low']
             if k1['high'] < k2['high'] > k3['high']:
@@ -364,6 +381,7 @@ class KlineAnalyze:
               'bi': 3456.97}
 
     """
+
     def _update_bi_list(self):
 
         if len(self.fx_list) < 2:
@@ -397,7 +415,7 @@ class KlineAnalyze:
 
         for fx in right_fx:
             last_bi = self.bi_list[-1]
-            bi = dict(fx)       # 新建 dict ，不会影响原始内容；
+            bi = dict(fx)  # 新建 dict ，不会影响原始内容；
             bi['bi'] = bi.pop('fx')
             if last_bi['fx_mark'] == fx['fx_mark']:
                 if (last_bi['fx_mark'] == 'g' and last_bi['bi'] < bi['bi']) \
@@ -425,6 +443,7 @@ class KlineAnalyze:
     """
         更新线段序列
     """
+
     def _update_xd_list(self):
 
         if len(self.bi_list) < 4:
@@ -446,12 +465,12 @@ class KlineAnalyze:
         xd_p = []
         bi_d = [x for x in right_bi if x['fx_mark'] == 'd']
         bi_g = [x for x in right_bi if x['fx_mark'] == 'g']
-        for i in range(1, len(bi_d)-2):
-            d1, d2, d3 = bi_d[i-1: i+2]
+        for i in range(1, len(bi_d) - 2):
+            d1, d2, d3 = bi_d[i - 1: i + 2]
             if d1['bi'] > d2['bi'] < d3['bi']:
                 xd_p.append(d2)
-        for j in range(1, len(bi_g)-2):
-            g1, g2, g3 = bi_g[j-1: j+2]
+        for j in range(1, len(bi_g) - 2):
+            g1, g2, g3 = bi_g[j - 1: j + 2]
             if g1['bi'] < g2['bi'] > g3['bi']:
                 xd_p.append(g2)
 
@@ -469,7 +488,7 @@ class KlineAnalyze:
                     self.xd_list[-1] = xd
             else:
                 # 若方向正常，新增K线为高点，却比上一个低点低，或者新增K线为低点，却比上一个高点高
-                if (last_xd['fx_mark'] == 'd' and xd['xd'] <= last_xd['xd'] ) \
+                if (last_xd['fx_mark'] == 'd' and xd['xd'] <= last_xd['xd']) \
                         or (last_xd['fx_mark'] == 'g' and xd['xd'] >= last_xd['xd']):
                     continue
 
@@ -549,9 +568,9 @@ class KlineAnalyze:
             self.ma = self.ma[-self.max_raw_len:]
             self.macd = self.macd[-self.max_raw_len:]
             self.kline_new = self.kline_new[-self.max_raw_len:]
-            self.fx_list = self.fx_list[-(self.max_raw_len//2):]
-            self.bi_list = self.bi_list[-(self.max_raw_len//4):]
-            self.xd_list = self.xd_list[-(self.max_raw_len//8):]
+            self.fx_list = self.fx_list[-(self.max_raw_len // 2):]
+            self.bi_list = self.bi_list[-(self.max_raw_len // 4):]
+            self.xd_list = self.xd_list[-(self.max_raw_len // 8):]
 
         if self.verbose:
             print("更新结束\n\n")
@@ -595,13 +614,12 @@ class KlineAnalyze:
             df.loc[:, "macd"] = diff
         return df
 
-
     def up_zs_number(self):
         """检查最新走势的连续向上中枢数量"""
         ka = self
         zs_num = 1
         if len(ka.zs_list) > 1:
-            k_zs = ka.zs_list[::-1]        # 倒序
+            k_zs = ka.zs_list[::-1]  # 倒序
             zs_cur = k_zs[0]
             for zs_next in k_zs[1:]:
                 if zs_cur["ZD"] >= zs_next["ZG"]:
@@ -620,7 +638,7 @@ class KlineAnalyze:
         ka = self
         zs_num = 1
         if len(ka.zs_list) > 1:
-            k_zs = ka.zs_list[::-1]        # 倒序
+            k_zs = ka.zs_list[::-1]  # 倒序
             zs_cur = k_zs[0]
             for zs_next in k_zs[1:]:
                 if zs_cur["ZG"] <= zs_next["ZD"]:
@@ -678,6 +696,7 @@ class KlineAnalyze:
             其作用是确保 zs1 相比于 zs2 的力度足够小。
         :return: bool
     """
+
     def is_bei_chi(self, zs1, zs2, mode="bi", adjust=0.9):
 
         assert zs1["start_dt"] > zs2["end_dt"], "zs1 必须是最近的走势，用于比较；zs2 必须是较前的走势，被比较。"
