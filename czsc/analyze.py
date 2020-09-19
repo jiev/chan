@@ -13,7 +13,6 @@ except ImportError:
 import pandas as pd
 import numpy as np
 from datetime import datetime
-from czsc.utils import plot_ka, plot_kline
 
 """
     输入笔或线段标记点，输出中枢识别结果
@@ -54,7 +53,8 @@ def find_zs(points):
         if len(zs_xd) < 5:
             zs_xd.append(k_xd[i])
             continue
-        xd_p = k_xd[i]
+
+        # 最前面 4个点，3根线段（不包括最后一个点）
         zs_d = max([x['xd'] for x in zs_xd[:4] if x['fx_mark'] == 'd'])
         zs_g = min([x['xd'] for x in zs_xd[:4] if x['fx_mark'] == 'g'])
         if zs_g <= zs_d:
@@ -62,6 +62,8 @@ def find_zs(points):
             zs_xd.pop(0)
             continue
 
+        # 若前面的3根线段有交集，则判断是否形成第三类买卖点，或其它处理；
+        xd_p = k_xd[i]
         # 定义四个指标,GG=max(gn),G=min(gn),D=max(dn),DD=min(dn)，n遍历中枢中所有Zn。
         # 特别地，再定义ZG=min(g1、g2), ZD=max(d1、d2)，显然，[ZD，ZG]就是缠中说禅走势中枢的区间
         if xd_p['fx_mark'] == "d" and xd_p['xd'] > zs_g:
@@ -132,11 +134,9 @@ def find_zs(points):
             high
             low
 """
-
-
 class KlineAnalyze:
     def __init__(self, kline, name="本级别", min_bi_k=5, bi_mode="new",
-                 max_raw_len=10000, ma_params=(5, 20, 120), verbose=False):
+                 max_raw_len=10000, ma_params=(5, 20, 60), verbose=False):
 
         self.name = name
         self.verbose = verbose
@@ -156,19 +156,11 @@ class KlineAnalyze:
         self.bi_list = []
         self.xd_list = []
 
-        # # 中枢识别结果
-        # self.zs_list_l1 = []
-        # self.zs_list_l2 = []
-        # self.zs_list_l3 = []
-        #
-        # # 走势分段结果
-        # self.fd_list_l1 = []
-        # self.fd_list_l2 = []
-        # self.fd_list_l3 = []
 
         # 根据输入K线初始化
         if isinstance(kline, pd.DataFrame):
             columns = kline.columns.to_list()
+            # 把K线的 dataFrame 格式，转化为 map 格式对象的 list ，其中map 对象的 key 为列名，value 为实际值；
             self.kline_raw = [{k: v for k, v in zip(columns, row)} for row in kline.values]
         else:
             self.kline_raw = kline
@@ -179,12 +171,22 @@ class KlineAnalyze:
         self.end_dt = self.kline_raw[-1]['dt']
         self.latest_price = self.kline_raw[-1]['close']
 
+        # 1. 生成技术指标，包括均线和 MACD ；
         self._update_ta()
+
+        # 2. K 线合并关系处理
         self._update_kline_new()
+
+        # 3. 更新分型信息
         self._update_fx_list()
+
+        # 4. 更新笔信息
         self._update_bi_list()
+
+        # 5. 更新线段信息
         self._update_xd_list()
 
+        # 6. 更新中枢列表
         self.zs_list = find_zs(self.xd_list)
 
     def _update_ta(self):
@@ -193,7 +195,7 @@ class KlineAnalyze:
             self.ma : 一个字典对象的 list
             self.macd : 一个字典对象的 list
         """
-        if not self.ma:
+        if not self.ma:    # 若 self.ma 大小为 0
             ma_temp = dict()
             close_ = np.array([x["close"] for x in self.kline_raw], dtype=np.double)
             for p in self.ma_params:
@@ -204,6 +206,7 @@ class KlineAnalyze:
                 ma_.update({"dt": self.kline_raw[i]['dt']})
                 self.ma.append(ma_)
         else:
+            # 考虑初始化后再调用 _update_ta 的情况，比如实时的场景下，新增一根K线后调用；
             ma_ = {'ma%i' % p: sum([x['close'] for x in self.kline_raw[-p:]]) / p
                    for p in self.ma_params}
             ma_.update({"dt": self.kline_raw[-1]['dt']})
@@ -215,7 +218,9 @@ class KlineAnalyze:
             else:
                 self.ma[-1] = ma_
 
+        # 确保 self.ma 和 self.kline_raw 一致；
         assert self.ma[-2]['dt'] == self.kline_raw[-2]['dt']
+
 
         if not self.macd:
             close_ = np.array([x["close"] for x in self.kline_raw], dtype=np.double)
@@ -229,6 +234,7 @@ class KlineAnalyze:
                     "macd": m3[i]
                 })
         else:
+            # 考虑初始化后再调用 _update_ta 的情况，比如实时的场景下，新增一根K线后调用；
             close_ = np.array([x["close"] for x in self.kline_raw[-200:]], dtype=np.double)
             # m1 is diff; m2 is dea; m3 is macd
             m1, m2, m3 = ta.MACD(close_, fastperiod=12, slowperiod=26, signalperiod=9)
@@ -246,12 +252,13 @@ class KlineAnalyze:
             else:
                 self.macd[-1] = macd_
 
+        # 确保 self.macd 和 self.kline_raw 一致；
         assert self.macd[-2]['dt'] == self.kline_raw[-2]['dt']
+
 
     """
         更新去除包含关系的K线序列
     """
-
     def _update_kline_new(self):
 
         if len(self.kline_new) == 0:
@@ -264,12 +271,15 @@ class KlineAnalyze:
         if len(self.kline_new) <= 4:
             right_k = [x for x in self.kline_raw if x['dt'] > self.kline_new[-1]['dt']]
         else:
+            # 初始化后再执行 _update_kline_new 的情况
             right_k = [x for x in self.kline_raw[-100:] if x['dt'] > self.kline_new[-1]['dt']]
 
         if len(right_k) == 0:
             return
 
         for k in right_k:
+
+            # 新建对象，不影响 kline_raw 中的内容
             k = dict(k)
             last_kn = self.kline_new[-1]
             if self.kline_new[-1]['high'] > self.kline_new[-2]['high']:
@@ -300,6 +310,8 @@ class KlineAnalyze:
                     k.update({"open": last_l, "close": last_h})
             self.kline_new.append(k)
 
+
+
     """
         更新分型序列,结果存储在 self.fx_list 中；
         分型仅仅根据包含关系处理后的高低点关系来处理，对两个分型中间有多少K线没有任何要求。要求中间有若干K线，是笔层面的事情；
@@ -315,18 +327,17 @@ class KlineAnalyze:
             self.fx_list.append(fx)
     
     """
-
     def _update_fx_list(self):
 
         if len(self.kline_new) < 3:
             return
 
-        # 在已有的 fx_list 的基础上，继续update 时间更新的 K 线，那么最后一个分型可能不成立，因此去掉；
-        # 但这里有一个限制，在已有的 fx_list 的基础上，继续update 时间更新的 K 线，目前的实现仅考虑 前99 根K线；
         self.fx_list = self.fx_list[:-1]
         if len(self.fx_list) == 0:
             kn = self.kline_new
         else:
+            # 初始化后再执行 _update_fx_list ，在已有的 fx_list 的基础上，继续update 时间更新的 K 线，那么最后一个分型可能不成立，因此去掉；
+            # 但这里有一个限制，在已有的 fx_list 的基础上，继续update 时间更新的 K 线，目前的实现仅考虑 前99 根K线；
             kn = [x for x in self.kline_new[-100:] if x['dt'] >= self.fx_list[-1]['dt']]
 
         i = 1
@@ -363,6 +374,8 @@ class KlineAnalyze:
                     print("无分型：{} - {} - {}".format(k1['dt'], k2['dt'], k3['dt']))
             i += 1
 
+
+
     """
         更新笔序列，结果存储在 self.bi_list 中；
         笔处理会区分 新笔 or 旧笔，主要在一个笔中间至少包含几个 K 线上有区别。我改为默认使用新笔；
@@ -381,7 +394,6 @@ class KlineAnalyze:
               'bi': 3456.97}
 
     """
-
     def _update_bi_list(self):
 
         if len(self.fx_list) < 2:
@@ -443,7 +455,6 @@ class KlineAnalyze:
     """
         更新线段序列
     """
-
     def _update_xd_list(self):
 
         if len(self.bi_list) < 4:
@@ -528,6 +539,8 @@ class KlineAnalyze:
             if self.verbose:
                 print("最后一个线段标记无效，{}".format(self.xd_list[-1]))
             self.xd_list.pop(-1)
+
+
 
     # K 是单根K线，更新单根 K 线，我可能不是很用的上这个函数
     def update(self, k):
@@ -614,6 +627,7 @@ class KlineAnalyze:
             df.loc[:, "macd"] = diff
         return df
 
+
     def up_zs_number(self):
         """检查最新走势的连续向上中枢数量"""
         ka = self
@@ -652,6 +666,7 @@ class KlineAnalyze:
             zs_num = 0
         return zs_num
 
+
     # jieweiwei : 这个线段背驰只是前后两个同向线段的背驰，而不是一个中枢前后两个线段的背驰；
     def xd_bei_chi(self):
         """判断最后一个线段是否背驰"""
@@ -675,6 +690,9 @@ class KlineAnalyze:
         else:
             return False
 
+
+
+
     """
         判断 zs1 对 zs2 是否有背驰
 
@@ -696,7 +714,6 @@ class KlineAnalyze:
             其作用是确保 zs1 相比于 zs2 的力度足够小。
         :return: bool
     """
-
     def is_bei_chi(self, zs1, zs2, mode="bi", adjust=0.9):
 
         assert zs1["start_dt"] > zs2["end_dt"], "zs1 必须是最近的走势，用于比较；zs2 必须是较前的走势，被比较。"
@@ -740,31 +757,3 @@ class KlineAnalyze:
             raise ValueError("mode value error")
 
         return bc
-
-    def to_html(self, file_html="kline.html", width="1200px", height="580px"):
-        """保存成 html
-
-        :param file_html: str
-            html文件名
-        :param width: str
-            页面宽度
-        :param height: str
-            页面高度
-        :return:
-        """
-        plot_kline(self, file_html=file_html, width=width, height=height)
-
-    def to_image(self, file_image, mav=(5, 20, 120, 250), max_k_count=1000, dpi=50):
-        """保存成图片
-
-        :param file_image: str
-            图片名称，支持 jpg/png/svg 格式，注意后缀
-        :param mav: tuple of int
-            均线系统参数
-        :param max_k_count: int
-            设定最大K线数量，这个值越大，生成的图片越长
-        :param dpi: int
-            图片分辨率
-        :return:
-        """
-        plot_ka(self, file_image=file_image, mav=mav, max_k_count=max_k_count, dpi=dpi)

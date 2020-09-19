@@ -5,6 +5,9 @@ from functools import lru_cache
 
 from .utils import plot_kline, plot_ka
 
+"""
+    代码备份，20200919
+"""
 
 def ma(kline, params=(5, 10, 20, 60, 120, 250)):
     """计算指定周期的若干 MA 均线
