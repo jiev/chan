@@ -2,14 +2,7 @@
 
 import warnings
 
-try:
-    import talib as ta
-except ImportError:
-    from czsc import ta
-
-    ta_lib_hint = "没有安装 ta-lib !!! 请到 https://www.lfd.uci.edu/~gohlke/pythonlibs/#ta-lib " \
-                  "下载对应版本安装，预计分析速度提升2倍"
-    warnings.warn(ta_lib_hint)
+import talib as ta
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -109,6 +102,146 @@ def find_zs(points):
         })
 
     return k_zs
+
+def make_standard_seq(bi_seq):
+    """计算标准特征序列
+    :param bi_seq: list of dict
+        笔标记序列
+    :return: list of dict
+        标准特征序列
+    """
+    if bi_seq[0]['fx_mark'] == 'd':
+        direction = "up"
+    elif bi_seq[0]['fx_mark'] == 'g':
+        direction = "down"
+    else:
+        raise ValueError
+
+    raw_seq = [{"start_dt": bi_seq[i]['dt'], "end_dt": bi_seq[i+1]['dt'],
+                'high': max(bi_seq[i]['bi'], bi_seq[i + 1]['bi']),
+                'low': min(bi_seq[i]['bi'], bi_seq[i + 1]['bi'])}
+               for i in range(1, len(bi_seq), 2) if i <= len(bi_seq) - 2]
+
+    seq = []
+    for row in raw_seq:
+        if not seq:
+            seq.append(row)
+            continue
+        last = seq[-1]
+        cur_h, cur_l = row['high'], row['low']
+        last_h, last_l = last['high'], last['low']
+
+        # 左包含 or 右包含
+        if (cur_h <= last_h and cur_l >= last_l) or (cur_h >= last_h and cur_l <= last_l):
+            seq.pop(-1)
+            # 有包含关系，按方向分别处理
+            if direction == "up":
+                last_h = max(last_h, cur_h)
+                last_l = max(last_l, cur_l)
+            elif direction == "down":
+                last_h = min(last_h, cur_h)
+                last_l = min(last_l, cur_l)
+            else:
+                raise ValueError
+            seq.append({"start_dt": last['start_dt'], "end_dt": row['end_dt'], "high": last_h, "low": last_l})
+        else:
+            seq.append(row)
+    return seq
+
+
+def is_valid_xd(bi_seq1, bi_seq2, bi_seq3):
+    """判断线段标记是否有效（第二个线段标记）
+    :param bi_seq1: list of dict
+        第一个线段标记到第二个线段标记之间的笔序列
+    :param bi_seq2:
+        第二个线段标记到第三个线段标记之间的笔序列
+    :param bi_seq3:
+        第三个线段标记之后的笔序列
+    :return:
+    """
+    assert bi_seq2[0]['dt'] == bi_seq1[-1]['dt'] and bi_seq3[0]['dt'] == bi_seq2[-1]['dt']
+
+    standard_bi_seq1 = make_standard_seq(bi_seq1)
+    if len(standard_bi_seq1) == 0 or len(bi_seq2) < 4:
+        return False
+
+    # 第一种情况（向下线段）
+    # if bi_seq2[0]['fx_mark'] == 'd' and bi_seq2[1]['bi'] >= standard_bi_seq1[-1]['low']:
+    if bi_seq2[0]['fx_mark'] == 'd' and bi_seq2[1]['bi'] >= min([x['low'] for x in standard_bi_seq1]):
+        if bi_seq2[-1]['bi'] < bi_seq2[1]['bi']:
+            return False
+
+    # 第一种情况（向上线段）
+    # if bi_seq2[0]['fx_mark'] == 'g' and bi_seq2[1]['bi'] <= standard_bi_seq1[-1]['high']:
+    if bi_seq2[0]['fx_mark'] == 'g' and bi_seq2[1]['bi'] <= max([x['high'] for x in standard_bi_seq1]):
+        if bi_seq2[-1]['bi'] > bi_seq2[1]['bi']:
+            return False
+
+    # 第二种情况（向下线段）
+    # if bi_seq2[0]['fx_mark'] == 'd' and bi_seq2[1]['bi'] < standard_bi_seq1[-1]['low']:
+    if bi_seq2[0]['fx_mark'] == 'd' and bi_seq2[1]['bi'] < min([x['low'] for x in standard_bi_seq1]):
+        bi_seq2.extend(bi_seq3[1:])
+        standard_bi_seq2 = make_standard_seq(bi_seq2)
+        if len(standard_bi_seq2) < 3:
+            return False
+
+        standard_bi_seq2_g = []
+        for i in range(1, len(standard_bi_seq2) - 1):
+            bi1, bi2, bi3 = standard_bi_seq2[i-1: i+2]
+            if bi1['high'] < bi2['high'] > bi3['high']:
+                standard_bi_seq2_g.append(bi2)
+
+                # 特征序列顶分型完全在底分型区间，返回 False
+                if min(bi1['low'], bi2['low'], bi3['low']) < bi_seq2[0]['bi']:
+                    return False
+
+        if len(standard_bi_seq2_g) == 0:
+            return False
+
+    # 第二种情况（向上线段）
+    # if bi_seq2[0]['fx_mark'] == 'g' and bi_seq2[1]['bi'] > standard_bi_seq1[-1]['high']:
+    if bi_seq2[0]['fx_mark'] == 'g' and bi_seq2[1]['bi'] > max([x['high'] for x in standard_bi_seq1]):
+        bi_seq2.extend(bi_seq3[1:])
+        standard_bi_seq2 = make_standard_seq(bi_seq2)
+        if len(standard_bi_seq2) < 3:
+            return False
+
+        standard_bi_seq2_d = []
+        for i in range(1, len(standard_bi_seq2) - 1):
+            bi1, bi2, bi3 = standard_bi_seq2[i-1: i+2]
+            if bi1['low'] > bi2['low'] < bi3['low']:
+                standard_bi_seq2_d.append(bi2)
+
+                # 特征序列的底分型在顶分型区间，返回 False
+                if max(bi1['high'], bi2['high'], bi3['high']) > bi_seq2[0]['bi']:
+                    return False
+
+        if len(standard_bi_seq2_d) == 0:
+            return False
+    return True
+
+
+def get_potential_xd(bi_points):
+    """获取潜在线段标记点
+    :param bi_points: list of dict
+        笔标记点
+    :return: list of dict
+        潜在线段标记点
+    """
+    xd_p = []
+    bi_d = [x for x in bi_points if x['fx_mark'] == 'd']
+    bi_g = [x for x in bi_points if x['fx_mark'] == 'g']
+    for i in range(1, len(bi_d) - 1):
+        d1, d2, d3 = bi_d[i - 1: i + 2]
+        if d1['bi'] > d2['bi'] < d3['bi']:
+            xd_p.append(d2)
+    for j in range(1, len(bi_g) - 1):
+        g1, g2, g3 = bi_g[j - 1: j + 2]
+        if g1['bi'] < g2['bi'] > g3['bi']:
+            xd_p.append(g2)
+
+    xd_p = sorted(xd_p, key=lambda x: x['dt'], reverse=False)
+    return xd_p
 
 
 """
@@ -452,95 +585,95 @@ class KlineAnalyze:
                 print("最后一个笔标记无效，{}".format(self.bi_list[-1]))
             self.bi_list.pop(-1)
 
-    """
-        更新线段序列
-    """
-    def _update_xd_list(self):
-
+    def _update_xd_list_step1(self):
+        """更新线段序列"""
         if len(self.bi_list) < 4:
             return
 
-        self.xd_list = self.xd_list[:-2]
+        self.xd_list = []
         if len(self.xd_list) == 0:
-            # jieweiwei ： 为什么前3个 笔K线 直接晋升为 线段K线？ 是否应该是 2？
             for i in range(3):
                 xd = dict(self.bi_list[i])
                 xd['xd'] = xd.pop('bi')
                 self.xd_list.append(xd)
 
-        if len(self.xd_list) <= 3:
-            right_bi = [x for x in self.bi_list if x['dt'] >= self.xd_list[-1]['dt']]
-        else:
-            right_bi = [x for x in self.bi_list[-200:] if x['dt'] >= self.xd_list[-1]['dt']]
+        right_bi = [x for x in self.bi_list if x['dt'] >= self.xd_list[-1]['dt']]
 
-        xd_p = []
-        bi_d = [x for x in right_bi if x['fx_mark'] == 'd']
-        bi_g = [x for x in right_bi if x['fx_mark'] == 'g']
-        for i in range(1, len(bi_d) - 2):
-            d1, d2, d3 = bi_d[i - 1: i + 2]
-            if d1['bi'] > d2['bi'] < d3['bi']:
-                xd_p.append(d2)
-        for j in range(1, len(bi_g) - 2):
-            g1, g2, g3 = bi_g[j - 1: j + 2]
-            if g1['bi'] < g2['bi'] > g3['bi']:
-                xd_p.append(g2)
-
-        xd_p = sorted(xd_p, key=lambda x: x['dt'], reverse=False)
+        xd_p = get_potential_xd(right_bi)
         for xp in xd_p:
             xd = dict(xp)
             xd['xd'] = xd.pop('bi')
             last_xd = self.xd_list[-1]
             if last_xd['fx_mark'] == xd['fx_mark']:
-                # 若同一个方向，且在该方向上更高或更低，则在线段list 中替换上一个 K线，否则不做任何处理；
                 if (last_xd['fx_mark'] == 'd' and last_xd['xd'] > xd['xd']) \
                         or (last_xd['fx_mark'] == 'g' and last_xd['xd'] < xd['xd']):
                     if self.verbose:
                         print("更新线段标记：from {} to {}".format(last_xd, xd))
                     self.xd_list[-1] = xd
             else:
-                # 若方向正常，新增K线为高点，却比上一个低点低，或者新增K线为低点，却比上一个高点高
-                if (last_xd['fx_mark'] == 'd' and xd['xd'] <= last_xd['xd']) \
-                        or (last_xd['fx_mark'] == 'g' and xd['xd'] >= last_xd['xd']):
+                if (last_xd['fx_mark'] == 'd' and last_xd['xd'] > xd['xd']) \
+                        or (last_xd['fx_mark'] == 'g' and last_xd['xd'] < xd['xd']):
                     continue
 
-                # 若方向正常，且高低点位正常，则：
-
-                # 下面这个条件存疑，笔标记的数量不一定要求大于4 ？
                 bi_inside = [x for x in right_bi if last_xd['dt'] <= x['dt'] <= xd['dt']]
                 if len(bi_inside) < 4:
                     if self.verbose:
                         print("{} - {} 之间笔标记数量少于4，跳过".format(last_xd['dt'], xd['dt']))
                     continue
                 else:
-                    if len(bi_inside) > 4:
-                        if self.verbose:
-                            print("新增线段标记（笔标记数量大于4）：{}".format(xd))
-                        self.xd_list.append(xd)
-                    else:
-                        bi_r = [x for x in right_bi if x['dt'] >= xd['dt']]
-                        assert bi_r[1]['fx_mark'] == bi_inside[-2]['fx_mark']
-                        # 第一种情况：没有缺口
-                        if (bi_r[1]['fx_mark'] == "g" and bi_r[1]['bi'] > bi_inside[-3]['bi']) \
-                                or (bi_r[1]['fx_mark'] == "d" and bi_r[1]['bi'] < bi_inside[-3]['bi']):
-                            if self.verbose:
-                                print("新增线段标记（第一种情况）：{}".format(xd))
-                            self.xd_list.append(xd)
-                        # 第二种情况：有缺口
-                        else:
-                            if (bi_r[1]['fx_mark'] == "g" and bi_r[1]['bi'] < bi_inside[-2]['bi']) \
-                                    or (bi_r[1]['fx_mark'] == "d" and bi_r[1]['bi'] > bi_inside[-2]['bi']):
-                                if self.verbose:
-                                    print("新增线段标记（第二种情况）：{}".format(xd))
-                                self.xd_list.append(xd)
+                    self.xd_list.append(xd)
 
-        # 最后一个线段可能没有走完，若确认没有走完（又创新高或新低），则在线段K线列表中去掉最后一个K线
-        if (self.xd_list[-1]['fx_mark'] == 'd' and self.kline_new[-1]['low'] < self.xd_list[-1]['xd']) \
-                or (self.xd_list[-1]['fx_mark'] == 'g' and self.kline_new[-1]['high'] > self.xd_list[-1]['xd']):
-            if self.verbose:
-                print("最后一个线段标记无效，{}".format(self.xd_list[-1]))
-            self.xd_list.pop(-1)
+    def _update_xd_list_step2(self):
+        """线段标记后处理，使用标准特征序列判断线段标记是否成立"""
+        if not len(self.xd_list) > 4:
+            return
 
+        keep_xd_index = []
+        for i in range(1, len(self.xd_list) - 2):
+            xd1, xd2, xd3, xd4 = self.xd_list[i - 1: i + 3]
+            bi_seq1 = [x for x in self.bi_list if xd2['dt'] >= x['dt'] >= xd1['dt']]
+            bi_seq2 = [x for x in self.bi_list if xd3['dt'] >= x['dt'] >= xd2['dt']]
+            bi_seq3 = [x for x in self.bi_list if xd4['dt'] >= x['dt'] >= xd3['dt']]
+            if len(bi_seq1) == 0 or len(bi_seq2) == 0 or len(bi_seq3) == 0:
+                continue
 
+            if is_valid_xd(bi_seq1, bi_seq2, bi_seq3):
+                keep_xd_index.append(i)
+
+        # 处理最近一个确定的线段标记
+        bi_seq1 = [x for x in self.bi_list if self.xd_list[-2]['dt'] >= x['dt'] >= self.xd_list[-3]['dt']]
+        bi_seq2 = [x for x in self.bi_list if self.xd_list[-1]['dt'] >= x['dt'] >= self.xd_list[-2]['dt']]
+        bi_seq3 = [x for x in self.bi_list if x['dt'] >= self.xd_list[-1]['dt']]
+        if not (len(bi_seq1) == 0 or len(bi_seq2) == 0 or len(bi_seq3) == 0):
+            if is_valid_xd(bi_seq1, bi_seq2, bi_seq3):
+                keep_xd_index.append(len(self.xd_list) - 2)
+
+        # 处理最近一个未确定的线段标记
+        if len(bi_seq3) >= 4:
+            keep_xd_index.append(len(self.xd_list) - 1)
+
+        new_xd_list = []
+        for j in keep_xd_index:
+            if not new_xd_list:
+                new_xd_list.append(self.xd_list[j])
+            else:
+                if new_xd_list[-1]['fx_mark'] == self.xd_list[j]['fx_mark']:
+                    if (new_xd_list[-1]['fx_mark'] == 'd' and new_xd_list[-1]['xd'] > self.xd_list[j]['xd']) \
+                            or (new_xd_list[-1]['fx_mark'] == 'g' and new_xd_list[-1]['xd'] < self.xd_list[j]['xd']):
+                        new_xd_list[-1] = self.xd_list[j]
+                else:
+                    new_xd_list.append(self.xd_list[j])
+        self.xd_list = new_xd_list
+
+        # 针对最近一个线段标记处理
+        if self.xd_list:
+            if (self.xd_list[-1]['fx_mark'] == 'd' and self.bi_list[-1]['bi'] < self.xd_list[-1]['xd']) \
+                    or (self.xd_list[-1]['fx_mark'] == 'g' and self.bi_list[-1]['bi'] > self.xd_list[-1]['xd']):
+                self.xd_list.pop(-1)
+
+    def _update_xd_list(self):
+        self._update_xd_list_step1()
+        self._update_xd_list_step2()
 
     # K 是单根K线，更新单根 K 线，我可能不是很用的上这个函数
     def update(self, k):
@@ -559,7 +692,7 @@ class KlineAnalyze:
         if self.verbose:
             print("=" * 100)
             print("输入新K线：{}".format(k))
-        if not self.kline_raw or k['open'] != self.kline_raw[-1]['open']:
+        if not self.kline_raw or k['dt'] != self.kline_raw[-1]['dt']:
             self.kline_raw.append(k)
         else:
             if self.verbose:
@@ -623,8 +756,8 @@ class KlineAnalyze:
         if use_macd:
             diff, dea, macd = ta.MACD(df.close.values)
             df.loc[:, "diff"] = diff
-            df.loc[:, "dea"] = diff
-            df.loc[:, "macd"] = diff
+            df.loc[:, "dea"] = dea
+            df.loc[:, "macd"] = macd
         return df
 
 
